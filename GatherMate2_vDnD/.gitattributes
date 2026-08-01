@@ -1,0 +1,4 @@
+# Export-ignore non-essential addon files
+*.md export-ignore
+*.txt export-ignore
+docs/ export-ignore
