@@ -73,7 +73,10 @@ local function getDefault(setting)
 end
 
 local function makeConfigTab( gui )
-	local tabName = GetAddOnMetadata("Gatherer_HUD", "X-Gatherer-Plugin-Name")
+	-- ANGEPASST: GetAddOnMetadata erwartet den tatsächlichen Ordner-/AddOn-Namen.
+	-- Der Ordner heisst jetzt "Gatherer_HUD_vDnD" statt "Gatherer_HUD", daher hier angepasst.
+	-- (Der X-Gatherer-Plugin-Name-Metadatenwert "HUD" selbst bleibt unverändert, das ist nur ein Anzeigename.)
+	local tabName = GetAddOnMetadata("Gatherer_HUD_vDnD", "X-Gatherer-Plugin-Name")
 	
 	local _, id = gui:GetTabByName(tabName, "PLUGINS")
 	gui:MakeScrollable(id)
@@ -128,5 +131,9 @@ local function onConfigChange(setting, value)
 end
 
 function Gatherer_HUD.Register()
-	Gatherer.Plugins.RegisterPlugin("Gatherer_HUD", getDefault, makeConfigTab, onConfigChange)
+	-- ANGEPASST: RegisterPlugin() sucht intern nach dem tatsächlichen (kleingeschriebenen)
+	-- Ordnernamen des AddOns (aus GetAddOnInfo()). Der Ordner heisst jetzt
+	-- "Gatherer_HUD_vDnD", daher muss hier der gleiche Name übergeben werden,
+	-- sonst schlägt die Plugin-Registrierung lautlos fehl.
+	Gatherer.Plugins.RegisterPlugin("Gatherer_HUD_vDnD", getDefault, makeConfigTab, onConfigChange)
 end

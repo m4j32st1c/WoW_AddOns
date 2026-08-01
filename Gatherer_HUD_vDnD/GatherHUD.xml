@@ -30,7 +30,8 @@
 	<Frame name="Gatherer_Hud" parent="UIParent">
 		<Layers>
 			<Layer level="BACKGROUND">
-				<Texture name="Gatherer_Hud_Base" file="Interface\AddOns\Gatherer_HUD\HudShape" alphaMode="DISABLE">
+				<!-- ANGEPASST: Pfad zeigte auf den alten Ordnernamen "Gatherer_HUD" -> jetzt "Gatherer_HUD_vDnD" -->
+				<Texture name="Gatherer_Hud_Base" file="Interface\AddOns\Gatherer_HUD_vDnD\HudShape" alphaMode="DISABLE">
 					<ColorType r="0" g="0" b="0" a="1"/>
 					<Anchors>
 						<Anchor point="CENTER">
@@ -42,7 +43,8 @@
 				</Texture>
 			</Layer>
 			<Layer level="BORDER">
-				<Texture name="Gatherer_Hud_Center" file="Interface\AddOns\Gatherer_HUD\HudShape" alphaMode="DISABLE">
+				<!-- ANGEPASST: Pfad zeigte auf den alten Ordnernamen "Gatherer_HUD" -> jetzt "Gatherer_HUD_vDnD" -->
+				<Texture name="Gatherer_Hud_Center" file="Interface\AddOns\Gatherer_HUD_vDnD\HudShape" alphaMode="DISABLE">
 					<ColorType r="0" g="0" b="0" a="1"/>
 					<Anchors>
 						<Anchor point="CENTER">

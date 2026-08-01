@@ -438,7 +438,8 @@ function lib.Render()
 						node = private.party_members[n]
 						if not node then
 							node = frame.compass:CreateTexture("GatherHudParty"..n)
-							node:SetTexture("Interface\\AddOns\\Gatherer_HUD\\Icons\\Blip.blp")
+							-- ANGEPASST: Pfad zeigte auf den alten Ordnernamen "Gatherer_HUD" -> jetzt "Gatherer_HUD_vDnD"
+							node:SetTexture("Interface\\AddOns\\Gatherer_HUD_vDnD\\Icons\\Blip.blp")
 							private.party_members[n] = node
 						end
 						
@@ -576,7 +577,8 @@ function lib.Render()
 						node = private.heat[pos]
 						if not node then
 							node = frame.heat:CreateTexture("GatherHudHeat"..pos)
-							node:SetTexture("Interface\\AddOns\\Gatherer_HUD\\HudShape")
+							-- ANGEPASST: Pfad zeigte auf den alten Ordnernamen "Gatherer_HUD" -> jetzt "Gatherer_HUD_vDnD"
+							node:SetTexture("Interface\\AddOns\\Gatherer_HUD_vDnD\\HudShape")
 							private.heat[pos] = node
 						end
 						node:SetVertexColor(r, g, b)
