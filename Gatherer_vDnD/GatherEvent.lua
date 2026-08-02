@@ -58,26 +58,26 @@ end
 
 function Gatherer.Event.OnLoad()
 	Gatherer_Manifest.Validate()
-	
+
 	Gatherer.SpecialCases.ProcessSpecialCases()
-	
+
 	local hookFunc = function( ... ) Gatherer.Event.OnSwag(...) end
 	LibSwag.RegisterHook("Gatherer", hookFunc, hookFunc)
 	LibSwag.Init()
-	
+
 	Gatherer.Config.Load()
 	Gatherer.DropRates.Load()
 	Gatherer.Var.Loaded = true
-	
+
 	Gatherer.MapNotes.Update()
 	Gatherer.MiniNotes.Show()
-	
+
 	Gatherer.MiniIcon.CreateLDB()
 	Gatherer.MiniIcon.Reposition()
 	Gatherer.MiniIcon.Update()
-	
+
 	--Gatherer.Plugins.LoadPluginData()
-	
+
 	if ( Gatherer.Config.GetSetting("about.loaded") ) then
 		Gatherer.Util.ChatPrint("Gatherer v"..Gatherer.Var.Version.." -- Loaded!")
 	end
@@ -92,39 +92,44 @@ function Gatherer.Event.OnEvent( event, ... )
 
 	elseif (event == "WORLD_MAP_UPDATE") then
 		Gatherer.MapNotes.MapDraw()
-	
+
 	elseif ( event == "CLOSE_WORLD_MAP") then
 		Gatherer.MapNotes.MapDraw()
 
 	elseif( event == "ADDON_LOADED" ) then
 		local addon = select(1, ...)
-		if (addon and string.lower(addon) == "gatherer") then
+		-- GEÄNDERT: Der Ordner (und damit der von WoW gemeldete Addon-Name) heißt
+		-- jetzt "Gatherer_vDnD" statt "Gatherer". Das war die Hauptursache des
+		-- gemeldeten Fehlers: Gatherer.Event.OnLoad() (und damit Config.Load(),
+		-- DropRates.Load(), Gatherer.Var.Loaded = true sowie in GatherStorage.lua
+		-- die Initialisierung von "data") lief nie, weil dieser Vergleich nie traf.
+		if (addon and string.lower(addon) == "gatherer_vdnd") then
 			Gatherer.Event.OnLoad()
 		end
-	
+
 	elseif ( event == "PLAYER_LOGIN" ) then
 		Gatherer.Util.StartClientItemCacheRefresh()
 		Gatherer.Util.GetSkills()
 		Gatherer.Util.UpdateTrackingState()
 		Gatherer.Plugins.LoadPluginData() -- * FIX for borked LoadAddOn *
-	
+
 	elseif ( event == "PLAYER_LOGOUT" ) then
 		Gatherer.Config.Save()
 		Gatherer.DropRates.Save()
-	
+
 	elseif ( event == "LEARNED_SPELL_IN_TAB" ) then
 		Gatherer.Util.GetSkills()
-	
+
 	elseif ( event == "SPELLS_CHANGED" ) then
 		Gatherer.Util.GetSkills()
-	
+
 	elseif ( event == "SKILL_LINES_CHANGED" ) then
 		Gatherer.Util.GetSkills()
-	
+
 	elseif ( event == "MINIMAP_UPDATE_TRACKING" ) then
 		Gatherer.Util.UpdateTrackingState()
 		Gatherer.MiniNotes.ForceUpdate()
-	
+
 	elseif ( event == "CHAT_MSG_ADDON" ) then
 		local prefix, msg, how, who = select(1, ...)
 		if ( prefix == "GathX" ) then
@@ -132,10 +137,10 @@ function Gatherer.Event.OnEvent( event, ... )
 		elseif ( prefix == "Gatherer" ) then
 			Gatherer.Comm.General(msg, how, who)
 		end
-		
+
 	elseif ( event == "ZONE_CHANGED_NEW_AREA" ) then
 		Gatherer.MiniNotes.Show()
-	
+
 	elseif ( event == "UI_ERROR_MESSAGE" ) then
 		local msg =  select(1, ...)
 		local skill = Gatherer.Util.ParseFormattedMessage(ERR_USE_LOCKED_WITH_ITEM_S, msg)
@@ -158,7 +163,7 @@ function Gatherer.Event.OnEvent( event, ... )
 				Gatherer.Api.AddGather(objId, gType, tip, "REQUIRE", 0, {}, false)
 			end
 		end
-	
+
 	elseif ( event ) then
 		Gatherer.Util.Debug("Gatherer Unknown event: "..event)
 	end
@@ -169,13 +174,13 @@ function Gatherer.Event.OnSwag(lootType, lootTable, coinAmount, extraData)
 	if (lootType ~= "KILL") then
 		local node = "Unknown"
 		if (extraData and extraData.tip) then node = extraData.tip end
-		
+
 		local object = Gatherer.Nodes.Names[node]
 		if (not object) then return end
-		
+
 		local objectType = Gatherer.Nodes.Objects[object]
 		if (objectType ~= lootType) then return end
-		
+
 		-- increments only if both lootTable and coinAmount are non-nil
 		Gatherer.Api.AddGather(object, lootType, storagetip, nil, coinAmount, lootTable, (lootTable and coinAmount))
 	end

@@ -1,8 +1,8 @@
 ## Interface: 40000
 ## 
-## Title: Gatherer_vDnD
-## Title-frFR: Gatherer_vDnD
-## Title-deDE: Gatherer_vDnD
+## Title: Gatherer
+## Title-frFR: Gatherer
+## Title-deDE: Gatherer
 ## 
 ## Notes: Gatherer, displays stuff you gather in your minimap and world map
 ## Notes-frFR: Gatherer, affiche les objets recoltes dans la minicarte et la carte du monde

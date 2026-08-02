@@ -1,8 +1,21 @@
 local Routes_vDnD = LibStub("AceAddon-3.0"):GetAddon("Routes_vDnD", 1)
 if not Routes_vDnD then return end
 
+-- GEÄNDERT: SourceName und AddonFolderName aufgeteilt.
+-- SourceName bleibt "Gatherer" (unveraendert), weil:
+--   - Routes_vDnD.lua sucht hartcodiert nach Routes.plugins["Gatherer"] (siehe RecreateRoute())
+--   - Gatherer selbst wurde intern NICHT umbenannt, die globale Tabelle heisst weiterhin "Gatherer"
+--   - Locale-Keys in Routes ("GathererHERB" etc.) basieren auf diesem String
+-- AddonFolderName ist der tatsaechliche Ordnername und wird NUR fuer die
+-- Addon-Erkennung (GetAddOnEnableState/GetAddOnInfo) gebraucht.
 local SourceName = "Gatherer"
-local L = LibStub("AceLocale-3.0"):GetLocale("Routes_vDnD")
+local AddonFolderName = "Gatherer_vDnD"
+-- GEÄNDERT: Locale-Namespace "Routes" statt "Routes_vDnD". Alle Locale-xxx.lua
+-- Dateien (siehe Locale-enUS.lua etc.) registrieren durchgängig unter "Routes",
+-- ein Namespace "Routes_vDnD" wurde nie angelegt. GetLocale() OHNE silent-Flag
+-- wirft in diesem Fall einen harten Lua-Error - die Datei brach hier bisher
+-- komplett ab, IsActive/Summarize/AppendNodes wurden nie definiert.
+local L = LibStub("AceLocale-3.0"):GetLocale("Routes")
 
 ------------------------------------------
 -- setup
@@ -18,8 +31,10 @@ do
 
 	-- stop loading if the addon is not enabled, or
 	-- stop loading if there is a reason why it can't be loaded ("MISSING" or "DISABLED")
-	local enabled = C_AddOns.GetAddOnEnableState(SourceName, UnitName("player")) > 0
-	local name, title, notes, loadable, reason, security = C_AddOns.GetAddOnInfo(SourceName)
+	-- GEÄNDERT: AddonFolderName statt SourceName, da hier der tatsaechliche
+	-- Ordnername gefragt werden muss ("Gatherer_vDnD"), nicht der interne Name.
+	local enabled = C_AddOns.GetAddOnEnableState(AddonFolderName, UnitName("player")) > 0
+	local name, title, notes, loadable, reason, security = C_AddOns.GetAddOnInfo(AddonFolderName)
 	if not enabled or (reason ~= nil and reason ~= "" and reason ~= "DEMAND_LOADED") then
 		loaded = false
 		return

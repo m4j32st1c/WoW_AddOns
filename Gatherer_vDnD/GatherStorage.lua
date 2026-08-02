@@ -102,11 +102,11 @@ function lib.AddNode(nodeName, gatherType, continent, zone, gatherX, gatherY, so
 	local zoneToken = Gatherer.ZoneTokens.GetZoneToken(continent, zone)
 	zone = Gatherer.ZoneTokens.GetZoneIndex(continent, zone)
 	-- check for invalid location information
-	
+
 	-- ccox - we should handle negative X and Y, see gatherer ticket #139
 	-- Swamp of Sorrows has stranglekelp at a negative Y position (northeast corner, off in the water)
 	if not ( (continent > 0) and zoneToken and (gatherX > 0) and (gatherY > 0) ) then return end
-	
+
 	local gatherType = validGatherTypes[gatherType]
 
 	if not (data[continent]) then data[continent] = { }; end
@@ -134,7 +134,7 @@ function lib.AddNode(nodeName, gatherType, continent, zone, gatherX, gatherY, so
 		-- bit more for a match
 		matchDist = 15
 	end
-	
+
 	local index, node
 
 	for i, gatherData in ipairs(gatherTable) do
@@ -157,7 +157,7 @@ function lib.AddNode(nodeName, gatherType, continent, zone, gatherX, gatherY, so
 		-- Do a proper average of the node position
 		gatherX = (gatherX + (node[POS_X] * count)) / (count + 1)
 		gatherY = (gatherY + (node[POS_Y] * count)) / (count + 1)
-		
+
 		-- Update the node's source field
 		local nodeSource = node[SOURCE]
 		if ( nodeSource ) then
@@ -183,9 +183,9 @@ function lib.AddNode(nodeName, gatherType, continent, zone, gatherX, gatherY, so
 	else
 		node = { [POS_X]=0, [POS_Y]=0, [COUNT]=0, [HARVESTED]=0, [INSPECTED]=0, [SOURCE]=source }
 		table.insert(gatherTable, node)
-		index = table.getn(gatherTable)
+		index = #gatherTable
 	end
-	
+
 	node[POS_X] = gatherX
 	node[POS_Y] = gatherY
 	if ( incrementCount ) then
@@ -229,10 +229,10 @@ local function removeNode( gatherData, index, playerName )
 				remove = false
 				nodeData[SOURCE] = newSource
 			end
-		
+
 		else  -- don't remove the node if a name was specified, but the node is "confirmed"
 			remove = false
-		
+
 		end
 	end
 	if ( remove ) then
@@ -286,7 +286,7 @@ function lib.RemoveGather( continent, zone, gatherId, playerName )
 				lib.RemoveGather(continent, zone, gatherId)
 				return 0, numNodes
 			end
-		
+
 		else
 			-- if no name was specified, remove the gather table and check for empty ancestors
 			local numGathers = #(data[continent][zone][gatherId])
@@ -298,7 +298,7 @@ function lib.RemoveGather( continent, zone, gatherId, playerName )
 				data[continent] = nil
 			end
 			return 0, numGathers
-		
+
 		end
 	end
 	return -2, 0
@@ -363,7 +363,7 @@ end
 function lib.GetGatherCountsForZone( continent, zone, gatherName )
 	zone = Gatherer.ZoneTokens.GetZoneToken(continent, zone)
 	if ( data[continent] and data[continent][zone] and data[continent][zone][gatherName] ) then
-		return table.getn(data[continent][zone][gatherName])
+		return #(data[continent][zone][gatherName])
 	else
 		return 0
 	end
@@ -385,9 +385,9 @@ function lib.GetNodeCountsByGatherType( continent, zone )
 		for gather, nodes in pairs(data[continent][zone]) do
 			local gtype = nodes.gtype
 			if ( nodeCountsByType[gtype] ) then
-				nodeCountsByType[gtype] = nodeCountsByType[gtype] + table.getn(nodes)
+				nodeCountsByType[gtype] = nodeCountsByType[gtype] + #nodes
 			else
-				nodeCountsByType.unknown = nodeCountsByType.unknown + table.getn(nodes)
+				nodeCountsByType.unknown = nodeCountsByType.unknown + #nodes
 			end
 		end
 	end
@@ -496,7 +496,7 @@ setmetatable(iteratorStateTables, { __mode = "k" }); --weak keys
 local workTableCache = { {}, {}, {}, {}, }; -- initial size of 4 tables
 
 local function getWorkTablePair()
-	if ( table.getn(workTableCache) < 2 ) then
+	if ( #workTableCache < 2 ) then
 		table.insert(workTableCache, {})
 		table.insert(workTableCache, {})
 	end
@@ -522,7 +522,7 @@ local function releaseWorkTablePair( index )
 end
 
 local function getWorkTable()
-	if ( table.getn(workTableCache) < 1 ) then
+	if ( #workTableCache < 1 ) then
 		table.insert(workTableCache, {})
 	end
 	local workTable = table.remove(workTableCache)
@@ -569,7 +569,7 @@ do --create a new block
 			dataTable = data
 		end
 		if not ( dataTable ) then return EmptyIterator; end -- no data
-		
+
 		local iteratorData = getWorkTable()
 		if ( continent ) then
 			local GetZoneIndex = Gatherer.ZoneTokens.GetZoneIndex
@@ -609,7 +609,7 @@ do --create a new block
 			return; --no data left
 		end
 		local gtype = gatherNodesTable.gtype
-		return gatherName, gtype, table.getn(gatherNodesTable)
+		return gatherName, gtype, #gatherNodesTable
 	end
 
 
@@ -843,7 +843,11 @@ eventFrame:RegisterEvent("PLAYER_LOGOUT")
 eventFrame.UnregisterEvent = function() end
 
 eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
-	if ( event == "ADDON_LOADED" and strlower(arg1) == "gatherer" ) then
+	-- GEÄNDERT: arg1 ist bei ADDON_LOADED der tatsächliche Ordnername des geladenen
+	-- Addons. Der Ordner heißt jetzt "Gatherer_vDnD" statt "Gatherer" -> der alte
+	-- Vergleich auf "gatherer" feuerte nie mehr, wodurch "data" nie initialisiert
+	-- wurde (Ursache des gemeldeten Fehlers "attempt to index upvalue 'data'").
+	if ( event == "ADDON_LOADED" and strlower(arg1) == "gatherer_vdnd" ) then
 		local savedData = _G[globalName]
 		if ( savedData ) then
 			getfenv(0)[globalName] = nil
@@ -853,10 +857,10 @@ eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
 			if ( type(savedData.dbVersion) == "number" ) then
 				if ( dbVersion == savedData.dbVersion ) then --database is current, no conversion needed
 					data = savedData
-					
+
 					local needImport = false
 					local dataToImport = { dbVersion = dbVersion }
-					
+
 					-- check for map File names that were used as a zone token and merge them if we now have a token
 					local checkToken = Gatherer.ZoneTokens.GetTokenFromFileName
 					for continent, contData in pairs(data) do
@@ -873,7 +877,7 @@ eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
 							end
 						end
 					end
-					
+
 					-- perform any needed node id re-mappings
 					if ( Gatherer.Nodes.ReMappings ) then
 						local remap = Gatherer.Nodes.ReMappings
@@ -893,11 +897,11 @@ eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
 							end
 						end
 					end
-					
+
 					if ( needImport ) then
 						lib.ImportDatabase(dataToImport)
 					end
-					
+
 					-- check for and remove any deprecated node ids
 					local validObjects = Gatherer.Nodes.Objects
 					for continent, contData in pairs(data) do
@@ -911,11 +915,11 @@ eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
 							end
 						end
 					end
-					
+
 				elseif ( savedData.dbVersion < dbVersion ) then --old database, conversion needed
 					lib.ImportDatabase(savedData)
 					--TODO: check for "set aside" database that needs merging
-					
+
 					savedData = nil
 					collectgarbage("collect"); --reclaim the old database
 
@@ -926,10 +930,10 @@ eventFrame:SetScript("OnEvent", function( frame, event, arg1 )
 					savedData.setAsideDatabases = nil
 					table.insert(data.setAsideDatabases, savedData)
 					StaticPopup_Show("GATHERER_DATABASE_TOO_NEW")
-				
+
 				end
 			else
-				--INVALID DATABASE VERSION, raise an error and put the invalid database back into the global 
+				--INVALID DATABASE VERSION, raise an error and put the invalid database back into the global
 				-- environment, the user can choose to clear the DB, or keep the invalid one
 				StaticPopup_Show("GATHERER_INVALID_DATABASE_VERSION")
 				getfenv(0)[globalName] = savedData

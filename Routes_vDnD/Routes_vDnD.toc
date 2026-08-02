@@ -59,16 +59,19 @@ Locales\Locale-zhCN.lua
 Locales\Locale-zhTW.lua
 
 # Core Routes files
-Routes.lua
-Routes.xml
-TSP.lua
+# ANGEPASST: Die Dateien wurden auf _vDnD umbenannt, TOC muss exakt darauf zeigen,
+# sonst läuft der Client mit "leerem" Addon (kein Fehler-Popup, es fehlt schlicht der Code).
+Routes_vDnD.lua
+Routes_vDnD.xml
+TSP_vDnD.lua
 
 # Routes Module files
 Modules\AutoShow.lua
 Modules\TomTom.lua
 
 # Addons we can draw data from
-Plugins\GatherMate2.lua
-Plugins\Gatherer.lua
-Plugins\HandyNotes.lua
-Plugins\GatherLite.lua
+# ANGEPASST: Die vier Plugin-Brücken-Dateien wurden ebenfalls auf _vDnD umbenannt.
+Plugins\GatherMate2_vDnD.lua
+Plugins\Gatherer_vDnD.lua
+Plugins\HandyNotes_vDnD.lua
+Plugins\GatherLite_vDnD.lua
