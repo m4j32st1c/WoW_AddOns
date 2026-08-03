@@ -1,12 +1,12 @@
 local ADDON_NAME = "MSLeveling"
 local PREFIX = "|cff66b3ff[MSL]|r "
-local REPLY_HELP = "Hello! This is the MS-Leveling addon by Bokuden (https://github.com/BokudenWow/MS-Leveling). To sign up, whisper your role and whether you have aura, e.g. 'tank with aura', 'heal without aura' or 'dps'. You'll be added to the candidate list automatically."
-local REPLY_OK = "Automatically added to the candidate list. Bokuden blesses you!"
+local REPLY_HELP = "Whisper your role and whether you have aura, e.g. 'tank with aura', 'heal without aura' or 'dps' to be added to the candidate list."
+local REPLY_OK = "Automatically added to the candidate list."
 
 MSLevelingDB = MSLevelingDB or {}
 local db = MSLevelingDB
 
-db.channels = db.channels or { 1, 8, 0 }
+db.channels = db.channels or { 1, 2, 0 }
 db.me = db.me or {}
 if db.autoReply == nil then
 	db.autoReply = true
