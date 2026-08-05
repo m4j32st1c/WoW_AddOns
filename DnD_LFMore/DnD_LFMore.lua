@@ -6,34 +6,34 @@
 
 local PREFIX = "|cff66b3ff[MSL]|r "
 
--- Saved variables table (persisted between sessions via SavedVariables in the .toc)
-MSLevelingDB = MSLevelingDB or {}
-local db = MSLevelingDB
+-- Saved variables table (persisted between sessions via SavedVariables in the .toc).
+-- IMPORTANT: this global name must match "## SavedVariables: DnD_LFMS_DB" in
+-- DnD_LFMS.toc exactly, or WoW will never save/restore this table on logout.
+-- (Previously this was "MSLevelingDB", which did NOT match the .toc entry,
+-- so nothing was ever actually persisted - fixed here.)
+DnD_LFMS_DB = DnD_LFMS_DB or {}
+local db = DnD_LFMS_DB
 
--- Default LFM channel numbers (0 = slot disabled), and own role/aura state
-db.channels = db.channels or { 1, 8, 0 }
+-- LFM channels as free text, e.g. "1, 2" - see ParseChannelList further
+-- down. Replaces the old fixed 3-slot array so any number of channels can
+-- be targeted, and sidesteps GetChannelList() entirely (see BroadcastLFM
+-- comment for why that API turned out unreliable on this server).
+db.channelsText = db.channelsText or "1, 2"
 db.me = db.me or {}
 
--- Group size presets: pick composition targets by group size instead of a
--- hardcoded 15-man raid. Add more entries here if other sizes are needed.
-local GROUP_PRESETS = {
-	[5] = { tank = 1, heal = 1, dps = 3, aura = 1 },
-	[15] = { tank = 2, heal = 3, dps = 10, aura = 3 },
-}
-local GROUP_SIZE_CYCLE = { [5] = 15, [15] = 5 }
-db.groupSize = db.groupSize or 15
+-- Group purpose text (e.g. "MS", "M+ Key 15") shown in the LFM broadcast.
+db.purpose = db.purpose or "MS leveling"
 
--- Group composition limits, derived from the current preset (see
--- ApplyGroupPreset below). Not local constants anymore since they change
--- when the group size is toggled.
-local MAX_TANK, MAX_HEAL, MAX_DPS, MAX_AURA, MAX_TOTAL
+-- Ignore/blacklist: name -> true. Players on this list are skipped entirely
+-- by the whisper handler (no candidate entry is ever created for them) and
+-- are not auto-added to the invited overview, so they can never end up in
+-- the group list or get invited through the addon. Populated by right-
+-- clicking a row (see CreateRow/IgnoreName further down).
+db.ignore = db.ignore or {}
 
-local function ApplyGroupPreset()
-	local p = GROUP_PRESETS[db.groupSize] or GROUP_PRESETS[15]
-	MAX_TANK, MAX_HEAL, MAX_DPS, MAX_AURA = p.tank, p.heal, p.dps, p.aura
-	MAX_TOTAL = p.tank + p.heal + p.dps
+local function IsIgnored(name)
+	return db.ignore[name] == true
 end
-ApplyGroupPreset()
 
 local ROW_HEIGHT = 22
 local ROWS_CAND = 8
@@ -265,22 +265,13 @@ local function RefreshInvited()
 	RefreshRows(INVITED, invRows, invScroll, ROWS_INV, true)
 end
 
-local function CountColor(cur, max)
-	if cur >= max then
-		return "ff5c5c"
-	end
-	return "7dff7d"
-end
-
+-- Shows plain totals per role (no target/max, since groups are meant to be
+-- flexible in size and composition - see FinalizeCollect/GetCounts).
 local function RefreshCounts()
 	local t, h, d, a, tot = GetCounts()
 	counts:SetFormattedText(
-		"|cff66b3ffTanks|r |cff%s%d/%d|r   |cff66b3ffHeals|r |cff%s%d/%d|r   |cff66b3ffDPS|r |cff%s%d/%d|r   |cff66b3ffAuras|r |cff%s%d/%d|r   |cff66b3ffTotal|r |cff%s%d/%d|r",
-		CountColor(t, MAX_TANK), t, MAX_TANK,
-		CountColor(h, MAX_HEAL), h, MAX_HEAL,
-		CountColor(d, MAX_DPS), d, MAX_DPS,
-		CountColor(a, MAX_AURA), a, MAX_AURA,
-		CountColor(tot, MAX_TOTAL), tot, MAX_TOTAL
+		"|cff66b3ffTanks|r %d   |cff66b3ffHeals|r %d   |cff66b3ffDPS|r %d   |cff66b3ffAuras|r %d   |cff66b3ffTotal|r %d",
+		t, h, d, a, tot
 	)
 end
 
@@ -385,14 +376,40 @@ end
 -- summary to raid chat.
 local function FinalizeCollect()
 	collecting = false
+	-- Snapshot any invited entries whose role/aura were already set (either
+	-- manually via the Role/Aura buttons, or from an earlier whisper) before
+	-- wiping the list, so the poll result never silently overwrites a value
+	-- someone already set on purpose.
+	local manual = {}
+	for _, inv in ipairs(INVITED) do
+		if inv.role ~= "?" or inv.aura ~= nil then
+			manual[inv.name] = { role = inv.role, aura = inv.aura }
+		end
+	end
 	wipe(INVITED)
 	local count = 0
 	for _, name in ipairs(GetGroupMemberNames()) do
+		local man = manual[name]
 		local rep = memberReplies[name]
+		local role, aura
+		if man and man.role ~= "?" then
+			role = man.role
+		elseif rep and rep.role then
+			role = rep.role
+		else
+			role = "DPS"
+		end
+		if man and man.aura ~= nil then
+			aura = man.aura
+		elseif rep and rep.aura ~= nil then
+			aura = rep.aura
+		else
+			aura = false
+		end
 		table.insert(INVITED, {
 			name = name,
-			role = rep and rep.role or "DPS",
-			aura = rep and rep.aura or false,
+			role = role,
+			aura = aura,
 			status = "Joined",
 		})
 		count = count + 1
@@ -465,49 +482,61 @@ local function ResetAll()
 	RefreshAll()
 end
 
--- Posts an LFM message to up to 3 configured channels. The outgoing message
--- stays fixed wording with no numbers/group size in it; the preview line
--- printed locally still shows current counts for your own reference.
+-- Parses the free-text channel field (e.g. "1, 2, 8") into a deduplicated
+-- array of channel numbers. Anything that isn't a positive number is
+-- silently ignored rather than rejecting the whole field, so a stray typo
+-- doesn't block the valid channels next to it.
+local function ParseChannelList(text)
+	local seen = {}
+	local list = {}
+	for token in (text or ""):gmatch("[^,%s]+") do
+		local n = tonumber(token)
+		if n and n > 0 and not seen[n] then
+			seen[n] = true
+			table.insert(list, n)
+		end
+	end
+	return list
+end
+
+-- Posts an LFM message to every channel listed in db.channelsText (free
+-- text, e.g. "1, 2, 8" - see ParseChannelList). No longer limited to 3
+-- slots, and no longer sourced from GetChannelList(): that API turned out
+-- to return data in a different order than expected on this server (and
+-- never signalled "no more channels"), which silently fed garbage channel
+-- ids into SendChatMessage. Plain user-typed numbers, the same call path
+-- used from the very first version, are the reliable option.
+-- The message is built from db.purpose (set via the "Ziel" edit box, e.g.
+-- "MS", "M+ Key 15"), falling back to "MS" if it was ever cleared out.
 local function BroadcastLFM()
-	local msg = "LFM MS. Whisper role (dps/heal/tank), + aura if you got it."
+	local purpose = (db.purpose and db.purpose ~= "") and db.purpose or "MS"
+	local msg = "LFM " .. purpose .. ". Whisper role (dps/heal/tank), + aura if you got it."
 	local t, h, d, a = GetCounts()
 	local preview = string.format(
-		"|cffffd000[MS Leveling]|r |cff66b3ffLFM sent:|r \"%s\" |cff66b3ff(current: |cff%s%d/%d|r Tank |cff%s%d/%d|r Heal |cff%s%d/%d|r DPS |cff%s%d/%d|r Aura)|r",
-		msg,
-		CountColor(t, MAX_TANK), t, MAX_TANK,
-		CountColor(h, MAX_HEAL), h, MAX_HEAL,
-		CountColor(d, MAX_DPS), d, MAX_DPS,
-		CountColor(a, MAX_AURA), a, MAX_AURA
+		"|cffffd000[MS Leveling]|r |cff66b3ffLFM sent:|r \"%s\" |cff66b3ff(current: %d Tank, %d Heal, %d DPS, %d Aura)|r",
+		msg, t, h, d, a
 	)
+	local channels = ParseChannelList(db.channelsText)
+	if #channels == 0 then
+		print(PREFIX .. "Configure at least one LFM channel (comma-separated, e.g. \"1, 2\").")
+		return
+	end
 	local sent = 0
 	local failed = {}
-	local channelNames = {}
-	local joined = {}
-	for i = 1, 50 do
-		local name, num = GetChannelList(i)
-		if not name then
-			break
-		end
-		channelNames[num] = name
-		table.insert(joined, name .. " (" .. num .. ")")
-	end
-	for i = 1, 3 do
-		local ch = db.channels[i]
-		if ch and ch > 0 then
-			local ok = pcall(SendChatMessage, msg, "CHANNEL", nil, ch)
-			if ok then
-				sent = sent + 1
-			else
-				table.insert(failed, tostring(ch) .. (channelNames[ch] and (" (" .. channelNames[ch] .. ")") or ""))
-			end
+	for _, ch in ipairs(channels) do
+		local ok = pcall(SendChatMessage, msg, "CHANNEL", nil, ch)
+		if ok then
+			sent = sent + 1
+		else
+			table.insert(failed, tostring(ch))
 		end
 	end
-	if sent == 0 and #failed > 0 then
-		print(PREFIX .. "LFM not sent: channel" .. (#failed > 1 and "s" or "") .. " " .. table.concat(failed, ", ") .. " failed. Make sure you are joined to them (channel buttons).")
-		print(PREFIX .. "Your joined channels: " .. (#joined > 0 and table.concat(joined, ", ") or "none"))
-	elseif sent == 0 then
-		print(PREFIX .. "Configure at least one LFM channel (channel buttons).")
+	if sent == 0 then
+		print(PREFIX .. "LFM not sent: channel" .. (#failed > 1 and "s" or "") .. " " .. table.concat(failed, ", ") .. " failed. Make sure you are actually joined to that channel number in-game (check the channel numbers in your chat settings).")
 	else
+		if #failed > 0 then
+			print(PREFIX .. "Note: channel" .. (#failed > 1 and "s" or "") .. " " .. table.concat(failed, ", ") .. " failed (not joined?), but the LFM still went out on the others.")
+		end
 		print(PREFIX .. preview)
 	end
 end
@@ -538,7 +567,7 @@ function RefreshStatus()
 		end
 	end
 	for _, n in ipairs(rosterNames) do
-		if not FindInvited(n) then
+		if not FindInvited(n) and not IsIgnored(n) then
 			table.insert(INVITED, { name = n, role = "?", aura = nil, status = "Joined" })
 			changed = true
 		end
@@ -580,6 +609,9 @@ function HandleWhisper(msg, author)
 	local role = DetectRole(m)
 	local aura = DetectAura(m)
 	local name = author:gsub("%-.*", "")
+	if IsIgnored(name) then
+		return
+	end
 	if collecting then
 		if role == nil or aura == nil then
 			local r, a = ParseNumbers(m)
@@ -666,6 +698,27 @@ local function RemoveInvited(name)
 	RefreshAll()
 end
 
+-- Adds a player to the ignore list (db.ignore, see top of file): removes
+-- them from whichever list they're currently in, kicking them from the
+-- group first if they were already invited, and marks them so
+-- HandleWhisper/RefreshStatus never re-add them. Triggered by right-
+-- clicking a row in either list (see CreateRow below).
+local function IgnoreName(name)
+	if db.ignore[name] then
+		return
+	end
+	db.ignore[name] = true
+	local idx = FindCandidate(name)
+	if idx then
+		table.remove(CANDIDATES, idx)
+	end
+	if FindInvited(name) then
+		RemoveInvited(name)
+	end
+	print(PREFIX .. name .. " added to the ignore list (right-click again elsewhere or use /lfms unignore <name> to undo).")
+	RefreshAll()
+end
+
 -- Builds one list row. Used for both the candidate list and the invited
 -- list; role/aura are always clickable/editable on every row regardless of
 -- which list it belongs to. `isCandidate` only controls whether an "Invite"
@@ -683,6 +736,11 @@ local function CreateRow(parent, isCandidate)
 	end)
 	row:SetScript("OnLeave", function(self)
 		self.bg:Hide()
+	end)
+	row:SetScript("OnMouseUp", function(self, button)
+		if button == "RightButton" and self.data then
+			IgnoreName(self.data.name)
+		end
 	end)
 
 	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -762,7 +820,7 @@ end
 -- Main window
 -- ============================================================
 
-f = CreateFrame("Frame", "MSLevelingFrame", UIParent)
+f = CreateFrame("Frame", "DnD_LFMSFrame", UIParent)
 f:SetSize(430, 604)
 f:SetPoint("CENTER")
 f:SetBackdrop({
@@ -800,6 +858,45 @@ local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 closeBtn:SetPoint("TOPRIGHT", -5, -5)
 closeBtn:SetScript("OnClick", function()
 	f:Hide()
+end)
+
+-- Group purpose field ("Ziel"): free text like "MS", "M+ Key 15", etc.
+-- Sits in the title row (fits in the free space before the close button,
+-- so no other widget on the window had to be moved). Value is persisted in
+-- db.purpose and consumed by BroadcastLFM() to build the LFM chat message.
+local purposeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+purposeLabel:SetPoint("LEFT", title, "RIGHT", 14, -1)
+purposeLabel:SetText("Ziel:")
+
+local purposeEdit = CreateFrame("EditBox", "DnD_LFMSPurposeEdit", f, "InputBoxTemplate")
+purposeEdit:SetSize(150, 20)
+purposeEdit:SetPoint("LEFT", purposeLabel, "RIGHT", 6, 0)
+purposeEdit:SetAutoFocus(false)
+purposeEdit:SetMaxLetters(42)
+purposeEdit:SetText(db.purpose)
+
+-- Commits the edit box text to db.purpose, trims whitespace, and falls back
+-- to "MS" if the field was left empty (BroadcastLFM never sends an empty
+-- purpose).
+local function CommitPurpose(self)
+	local v = self:GetText():gsub("^%s+", ""):gsub("%s+$", "")
+	if v == "" then
+		v = "MS"
+	end
+	db.purpose = v
+	self:SetText(v)
+end
+
+purposeEdit:SetScript("OnEnterPressed", function(self)
+	CommitPurpose(self)
+	self:ClearFocus()
+end)
+purposeEdit:SetScript("OnEscapePressed", function(self)
+	self:SetText(db.purpose)
+	self:ClearFocus()
+end)
+purposeEdit:SetScript("OnEditFocusLost", function(self)
+	CommitPurpose(self)
 end)
 
 counts = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -845,59 +942,63 @@ selfAura:SetScript("OnClick", function()
 	RefreshAll()
 end)
 
-local lfmBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-lfmBtn:SetSize(110, 22)
-lfmBtn:SetPoint("TOPLEFT", 16, -84)
-lfmBtn:SetText("Post LFM")
-lfmBtn:SetScript("OnClick", BroadcastLFM)
+local broadcastBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+broadcastBtn:SetSize(110, 22)
+broadcastBtn:SetPoint("TOPLEFT", 16, -84)
+broadcastBtn:SetText("Broadcast")
+broadcastBtn:SetScript("OnClick", BroadcastLFM)
 
 local raidBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-raidBtn:SetSize(95, 22)
-raidBtn:SetPoint("LEFT", lfmBtn, "RIGHT", 6, 0)
-raidBtn:SetText("Load Raid")
+raidBtn:SetSize(150, 22)
+raidBtn:SetPoint("LEFT", broadcastBtn, "RIGHT", 6, 0)
+raidBtn:SetText("Raid_RoleSurvey")
 raidBtn:SetScript("OnClick", LoadRaid)
 
 local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 resetBtn:SetSize(70, 22)
 resetBtn:SetPoint("LEFT", raidBtn, "RIGHT", 6, 0)
-resetBtn:SetText("Reset")
+resetBtn:SetText("ClearList")
 resetBtn:SetScript("OnClick", function()
-	StaticPopup_Show("MSLEVELING_RESET")
-end)
-
-local groupSizeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-groupSizeBtn:SetSize(90, 22)
-groupSizeBtn:SetPoint("LEFT", resetBtn, "RIGHT", 6, 0)
-groupSizeBtn:SetText("Group: " .. db.groupSize)
-groupSizeBtn:SetScript("OnClick", function(self)
-	db.groupSize = GROUP_SIZE_CYCLE[db.groupSize] or 15
-	ApplyGroupPreset()
-	self:SetText("Group: " .. db.groupSize)
-	RefreshAll()
+	StaticPopup_Show("DND_LFMS_RESET")
 end)
 
 local chLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 chLabel:SetPoint("TOPLEFT", 16, -114)
-chLabel:SetText("LFM channels (click to change, 0 = none):")
+chLabel:SetText("LFM channels (comma-separated, e.g. \"1, 2\"):")
 
-local chButtons = {}
-for i = 1, 3 do
-	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	b:SetSize(36, 20)
-	b:SetPoint("TOPLEFT", 16 + (i - 1) * 42, -130)
-	b:SetText(tostring(db.channels[i] or 0))
-	b:SetScript("OnClick", function(self)
-		db.channels[i] = ((db.channels[i] or 0) + 1) % 11
-		self:SetText(tostring(db.channels[i]))
-	end)
-	chButtons[i] = b
+local channelsEdit = CreateFrame("EditBox", "DnD_LFMSChannelsEdit", f, "InputBoxTemplate")
+channelsEdit:SetSize(200, 20)
+channelsEdit:SetPoint("TOPLEFT", 24, -132)
+channelsEdit:SetAutoFocus(false)
+channelsEdit:SetMaxLetters(120)
+channelsEdit:SetText(db.channelsText)
+
+-- Commits the channel field text as-is (no validation here; ParseChannelList
+-- in BroadcastLFM tolerates and skips anything that isn't a positive
+-- number, so a stray typo can't lock the field or block the other entries).
+local function CommitChannels(self)
+	local v = self:GetText():gsub("^%s+", ""):gsub("%s+$", "")
+	db.channelsText = v
+	self:SetText(v)
 end
+
+channelsEdit:SetScript("OnEnterPressed", function(self)
+	CommitChannels(self)
+	self:ClearFocus()
+end)
+channelsEdit:SetScript("OnEscapePressed", function(self)
+	self:SetText(db.channelsText)
+	self:ClearFocus()
+end)
+channelsEdit:SetScript("OnEditFocusLost", function(self)
+	CommitChannels(self)
+end)
 
 local candHeader = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 candHeader:SetPoint("TOPLEFT", 16, -158)
 candHeader:SetText("Candidates (whispers):")
 
-candScroll = CreateFrame("ScrollFrame", "MSLevelingCandScroll", f, "FauxScrollFrameTemplate")
+candScroll = CreateFrame("ScrollFrame", "DnD_LFMSCandScroll", f, "FauxScrollFrameTemplate")
 candScroll:SetPoint("TOPLEFT", 8, -174)
 candScroll:SetPoint("TOPRIGHT", f, "TOPRIGHT", -24, -174)
 candScroll:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 8, -350)
@@ -921,7 +1022,7 @@ local invHeader = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 invHeader:SetPoint("TOPLEFT", 16, -358)
 invHeader:SetText("Invited:")
 
-invScroll = CreateFrame("ScrollFrame", "MSLevelingInvScroll", f, "FauxScrollFrameTemplate")
+invScroll = CreateFrame("ScrollFrame", "DnD_LFMSInvScroll", f, "FauxScrollFrameTemplate")
 invScroll:SetPoint("TOPLEFT", 8, -374)
 invScroll:SetPoint("TOPRIGHT", f, "TOPRIGHT", -24, -374)
 invScroll:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 8, -584)
@@ -943,9 +1044,9 @@ end
 
 local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 hint:SetPoint("BOTTOMLEFT", 16, 8)
-hint:SetText("Click Role/Aura to edit | /lfms toggles the window")
+hint:SetText("Click Role/Aura to edit | Right-click a row to ignore | /lfms toggles the window")
 
-StaticPopupDialogs["MSLEVELING_RESET"] = {
+StaticPopupDialogs["DND_LFMS_RESET"] = {
 	text = "Reset the MS Leveling list? Candidates and invited players will be removed.",
 	button1 = "Reset",
 	button2 = "Cancel",
@@ -962,7 +1063,7 @@ StaticPopupDialogs["MSLEVELING_RESET"] = {
 -- Minimap button
 -- ============================================================
 
-local mm = CreateFrame("Button", "MSLevelingMinimapButton", Minimap)
+local mm = CreateFrame("Button", "DnD_LFMSMinimapButton", Minimap)
 mm:SetSize(32, 32)
 mm:SetFrameStrata("MEDIUM")
 mm:SetFrameLevel(8)
@@ -1016,15 +1117,28 @@ end)
 -- ============================================================
 
 SLASH_LFMS1 = "/lfms"
-SLASH_LFMS2 = "/msleveling"
+SLASH_LFMS2 = "/dndlfms"
 SlashCmdList["LFMS"] = function(arg)
-	arg = (arg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-	if arg == "reset" then
+	-- Keep the raw (case-preserved) argument around for "unignore <name>",
+	-- since player names are case-sensitive; only use the lowercased
+	-- version to match the fixed sub-command keywords.
+	local raw = (arg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	local lower = raw:lower()
+	if lower == "reset" then
 		ResetAll()
-	elseif arg == "lfm" then
+	elseif lower == "lfm" then
 		BroadcastLFM()
-	elseif arg == "raid" then
+	elseif lower == "raid" then
 		LoadRaid()
+	elseif lower:match("^unignore%s+%S") then
+		local name = raw:match("^%S+%s+(.+)$")
+		name = name and name:gsub("^%s+", ""):gsub("%s+$", "")
+		if name and db.ignore[name] then
+			db.ignore[name] = nil
+			print(PREFIX .. name .. " removed from the ignore list.")
+		elseif name then
+			print(PREFIX .. name .. " was not on the ignore list.")
+		end
 	else
 		if f:IsShown() then
 			f:Hide()
